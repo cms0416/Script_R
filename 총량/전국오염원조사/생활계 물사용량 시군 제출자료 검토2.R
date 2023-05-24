@@ -10,59 +10,6 @@ source("Script_R/Function/round2func.R")
 ################################################################################
 
 
-## 법정동코드 불러오기
-dongcode <- read_excel("주소 검토/법정동코드 전체자료.xlsx", guess_max = 3000) %>% 
-  filter(시도 == "강원도", 폐지여부 == "존재") %>% 
-  select(-폐지여부) %>% 
-  rename(시군 = 시군구) %>% 
-  mutate(
-    읍면 = str_extract(읍면동, "[가-힣0-9]{1,}(읍|면)"),
-    동리 = str_extract(읍면동, "[가-힣0-9]{1,}(동|가)"),
-    동리 = ifelse(is.na(동리), 리, 동리)) %>% 
-  filter(!is.na(동리))
-
-동리 <- str_c(dongcode$동리)
-
-test <- waterusage %>% select(시군, 주소1, 주소2) %>% 
-  mutate(주소1수정 =
-           # '00번길' 또는 '00길'앞에 띄어쓰기가 되어 있는 경우 공백 제거
-           str_replace(주소1, " 번길", "번길") %>%
-           str_replace(., "[\\s][0-9]{1,}(번길)", str_extract(주소1, "[0-9]{1,}(번길)")) %>%
-           str_replace(., "[\\s][0-9]{1,}(길)", str_extract(주소1, "[0-9]{1,}(길)")) %>%
-           # 리 앞에 숫자가 있는 경우('00리') 숫자 삭제
-           str_replace(., "[0-9]{1,}(리)", "리") %>%
-           # '00반' 삭제
-           str_remove(., "[0-9]{1,}(반)") %>%
-           str_trim(),
-         주소2수정 =
-           # '00번길' 또는 '00길'앞에 띄어쓰기가 되어 있는 경우 공백 제거
-           str_replace(주소2, " 번길", "번길") %>%
-           str_replace(., "[\\s][0-9]{1,}(번길)", str_extract(주소2, "[0-9]{1,}(번길)")) %>%
-           str_replace(., "[\\s][0-9]{1,}(길)", str_extract(주소2, "[0-9]{1,}(길)")) %>%
-           # 리 앞에 숫자가 있는 경우('00리') 숫자 삭제
-           str_replace(., "[0-9]{1,}(리)", "리") %>%
-           # '00반' 삭제
-           str_remove(., "[0-9]{1,}(반)") %>%
-           str_trim(),
-         읍면1 = str_extract(주소1수정, "[가-힣0-9]{1,}(읍|면)") %>% 
-           str_remove(., "[0-9]{1,}") %>% 
-           str_trim(), 
-         읍면2 = str_extract(주소2수정, "[가-힣0-9]{1,}(읍|면)") %>% 
-           str_remove(., "[0-9]{1,}") %>% 
-           str_trim(),
-         동리1 = ifelse(str_sub(str_extract(주소1수정, "[가-힣0-9]{1,}(동|가|리)") %>% str_trim(), -1, -1) == "가",
-                     str_extract(주소1수정, "[가-힣0-9]{1,}(가)") %>% str_trim(),
-                     str_extract(주소1수정, "[가-힣0-9]{1,}(동|리)") %>%
-                       str_remove_all(., "[0-9]{1,}") %>% str_trim()),
-         동리2 = ifelse(str_sub(str_extract(주소2수정, "[가-힣0-9]{1,}(동 |가 |리 )") %>% str_trim(), -1, -1) == "가",
-                      str_extract(주소2수정, "[가-힣0-9]{1,}(가 )") %>% str_trim(),
-                      str_extract(주소2수정, "[가-힣0-9]{1,}(동 |리 )") %>%
-                        str_remove_all(., "[0-9]{1,}") %>% str_trim()), 
-           도로명1 = str_extract(주소1수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가))"),
-           도로명2 = str_extract(주소2수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가))"))
-           
-         
-         읍면확인 = str_detect(읍면, 읍면1)
 
 ## *****  파일 불러오기  *******************************************************
 # 데이터 경로지정 및 데이터 목록
@@ -92,7 +39,7 @@ waterusage_wims <- data.frame()
 
 for (file in files_wims) {
   print(file)
-  temp <- read_excel(file, skip = 4, col_names = F) %>%
+  temp <- read_excel(file, skip = 2, col_names = F) %>%
     select(1, 3:6, 8, 9, 22:33, 46, 47) %>%
     # substr(문자열, 시작위치, 끝위치) : 시군 이름 추출
     mutate(시군 = str_sub(file, -8, -6))
@@ -164,7 +111,95 @@ waterusage <- rbind(waterusage_기존1, waterusage_wims1, waterusage_푸른물1)
 
 ##########  주소 정리  ###############################################################
 
+### 법정동코드 불러오기
+dongcode <- read_excel("주소 검토/법정동코드 전체자료.xlsx", guess_max = 3000) %>% 
+  filter(시도 == "강원도", 폐지여부 == "존재") %>% 
+  select(-폐지여부) %>% 
+  rename(시군 = 시군구) %>% 
+  mutate(
+    읍면 = str_extract(읍면동, "[가-힣0-9]{1,}(읍|면)"),
+    동리 = str_extract(읍면동, "[가-힣0-9]{1,}(동|가)"),
+    동리 = ifelse(is.na(동리), 리, 동리)) %>% 
+  filter(!is.na(동리))
 
+### 도로명코드 불러오기
+dorocode <- read.table("주소 검토/주소DB/도로명코드.txt", 
+                       header = F, quote = "", sep = "|", fill = T,
+                       encoding = "UTF-8", fileEncoding = "EUC-KR") %>% 
+  select(1, 2, 5) %>%
+  set_names(c(
+    "도로명코드", "도로명", "시도"
+  )) %>% 
+  filter(시도 == "강원도") %>% 
+  select(-시도) %>% 
+  distinct(도로명, .keep_all = TRUE)
+
+### 읍면, 동리, 도로명 확인용 벡터 생성(제일 앞에 여백 추가)
+읍면_check <- paste(" ", dongcode$읍면, collapse = " ")
+동리_check <- paste(" ", dongcode$동리, collapse = " ")
+도로명_check <- paste(" ", dorocode$도로명, collapse = " ")
+
+
+### 주소검토
+test <- waterusage %>% select(시군, 주소1, 주소2) %>% 
+  mutate(주소1수정 =
+           # '00번길' 또는 '00길'앞에 띄어쓰기가 되어 있는 경우 공백 제거
+           str_replace(주소1, " 번길", "번길") %>%
+           str_replace(., "[\\s][0-9]{1,}(번길)", str_extract(주소1, "[0-9]{1,}(번길)")) %>%
+           str_replace(., "[\\s][0-9]{1,}(길)", str_extract(주소1, "[0-9]{1,}(길)")) %>%
+           # 리 앞에 숫자가 있는 경우('00리') 숫자 삭제
+           str_replace(., "[0-9]{1,}(리)", "리") %>%
+           # '00반' 삭제
+           str_remove(., "[0-9]{1,}(반)") %>%
+           str_trim(),
+         주소2수정 =
+           # '00번길' 또는 '00길'앞에 띄어쓰기가 되어 있는 경우 공백 제거
+           str_replace(주소2, " 번길", "번길") %>%
+           str_replace(., "[\\s][0-9]{1,}(번길)", str_extract(주소2, "[0-9]{1,}(번길)")) %>%
+           str_replace(., "[\\s][0-9]{1,}(길)", str_extract(주소2, "[0-9]{1,}(길)")) %>%
+           # 리 앞에 숫자가 있는 경우('00리') 숫자 삭제
+           str_replace(., "[0-9]{1,}(리)", "리") %>%
+           # '00반' 삭제
+           str_remove(., "[0-9]{1,}(반)") %>%
+           str_trim(),
+         읍면1 = str_extract(주소1수정, "[가-힣0-9]{1,}(읍|면)") %>% 
+           str_remove(., "[0-9]{1,}") %>% 
+           str_trim(), 
+         # 읍면1 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
+         읍면1 = ifelse(str_detect(읍면_check, str_c(" ", 읍면1, " ")), 읍면1, ""),
+         읍면2 = str_extract(주소2수정, "[가-힣0-9]{1,}(읍|면)") %>% 
+           str_remove(., "[0-9]{1,}") %>% 
+           str_trim(),
+         # 읍면2 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
+         읍면2 = ifelse(str_detect(읍면_check, str_c(" ", 읍면2, " ")), 읍면2, ""),
+         동리1 = ifelse(str_sub(str_extract(주소1수정, "[가-힣0-9]{1,}(동|가|리)") %>% str_trim(), -1, -1) == "가",
+                      str_extract(주소1수정, "[가-힣0-9]{1,}(가)") %>% str_trim(),
+                      str_extract(주소1수정, "[가-힣0-9]{1,}(동|리)") %>%
+                        str_remove_all(., "[0-9]{1,}") %>% str_trim()),
+         # 동리1 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
+         동리1 = ifelse(str_detect(동리_check, str_c(" ", 동리1, " ")), 동리1, ""),
+         동리2 = ifelse(str_sub(str_extract(주소2수정, "[가-힣0-9]{1,}(동|가|리)") %>% str_trim(), -1, -1) == "가",
+                      str_extract(주소2수정, "[가-힣0-9]{1,}(가)") %>% str_trim(),
+                      str_extract(주소2수정, "[가-힣0-9]{1,}(동|리)") %>%
+                        str_remove_all(., "[0-9]{1,}") %>% str_trim()), 
+         # 동리2 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
+         동리2 = ifelse(str_detect(동리_check, str_c(" ", 동리2, " ")), 동리2, ""),
+         도로명1 = str_extract(주소1수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가))"),
+         도로명2 = str_extract(주소2수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가))")
+  )
+
+
+
+
+
+
+
+
+
+
+
+
+###########################################################################################
 waterusage1 <- waterusage %>%
   mutate(
     # 주소 1, 2 합치기

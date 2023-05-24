@@ -38,7 +38,7 @@ waterusage_wims <- data.frame()
 
 for (file in files_wims) {
   print(file)
-  temp <- read_excel(file, skip = 4, col_names = F) %>%
+  temp <- read_excel(file, skip = 2, col_names = F) %>%
     select(1, 3:6, 8, 9, 22:33, 46, 47) %>%
     # substr(문자열, 시작위치, 끝위치) : 시군 이름 추출
     mutate(시군 = str_sub(file, -8, -6))

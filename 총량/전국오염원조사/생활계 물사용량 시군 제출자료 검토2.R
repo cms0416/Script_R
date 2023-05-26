@@ -1,5 +1,6 @@
 #####  라이브러리 로드  ########################################################
 library(tidyverse)
+library(magrittr)
 library(data.table)
 library(readxl)
 library(writexl)
@@ -15,7 +16,7 @@ source("Script_R/Function/round2func.R")
 # 데이터 경로지정 및 데이터 목록
 files <- list.files(
   path = "전국오염원조사/0시군제출자료 검토/생활계",
-  pattern = "*.xls", full.names = T
+  pattern = "*.xlsx", full.names = T
 )
 
 files_기존 <- grep("기존", files, value = TRUE)
@@ -105,8 +106,49 @@ waterusage_푸른물1 <- waterusage_푸른물 %>%
     "사용량합계"
   ))
 
-## 전체 파일 합치가
+## 전체 파일 합치기
 waterusage <- rbind(waterusage_기존1, waterusage_wims1, waterusage_푸른물1)
+
+
+##########  과거 자료(2021년) 확인  ##################################################
+
+## *****  파일 불러오기  *******************************************************
+# 데이터 경로지정 및 데이터 목록
+files <- list.files(
+  path = "전국오염원조사/생활계 물사용량 주소 검증/2021년 기준 물사용량 제출 자료",
+  pattern = "*.xlsx", full.names = T
+)
+
+# 기존 양식 파일 합치기
+waterusage_2021 <- data.frame()
+
+for (file in files) {
+  print(file)
+  temp <- read_excel(file, skip = 6, col_names = F) %>%
+    select(2:3, 5:9, 12:19)
+  
+  waterusage_2021 <- rbind(waterusage_2021, temp)
+}
+## *****************************************************************************
+
+## 과거 파일 정리
+waterusage_2021 %<>%
+  set_names(c(
+    "법정동코드", "수용가번호", "시군", "읍면동", "법정리",
+    "본번", "부번", "읍면", "도로명", "건물본번", "건물부번",
+    "수용가명", "상호명", "업종", "가구수"
+  ))
+waterusage_2021_dong <- waterusage_2021 %>% 
+  mutate_at("법정동코드", as.numeric) %>%
+  left_join(dongcode %>% select(법정동코드, 동리), by = "법정동코드") %>% 
+  mutate(법정리2 = ifelse(is.na(법정리) | 법정리 == "", 동리, 법정리),
+         주소코드 = str_c(시군, 읍면동, 법정리2, sep = " "),
+         코드 = str_c(시군, 수용가번호)) %>% 
+  select(-c(법정동코드, 법정리:동리))%>% 
+  distinct(코드, .keep_all = TRUE) %>%
+  mutate(중복자료 = ifelse(duplicated(코드), "중복", ""))
+
+  
 
 
 ##########  주소 정리  ###############################################################
@@ -118,8 +160,7 @@ dongcode <- read_excel("주소 검토/법정동코드 전체자료.xlsx", guess_
   rename(시군 = 시군구) %>% 
   mutate(
     읍면 = str_extract(읍면동, "[가-힣0-9]{1,}(읍|면)"),
-    동리 = str_extract(읍면동, "[가-힣0-9]{1,}(동|가)"),
-    동리 = ifelse(is.na(동리), 리, 동리)) %>% 
+    동리 = ifelse(is.na(읍면), 읍면동, 리)) %>% 
   filter(!is.na(동리))
 
 ### 도로명코드 불러오기
@@ -141,7 +182,8 @@ dorocode <- read.table("주소 검토/주소DB/도로명코드.txt",
 
 
 ### 주소검토
-test <- waterusage %>% select(시군, 주소1, 주소2) %>% 
+test <- waterusage %>% select(시군, 수용가번호, 주소1, 주소2) %>% 
+  # filter(시군 == "철원군") %>% 
   mutate(주소1수정 =
            # '00번길' 또는 '00길'앞에 띄어쓰기가 되어 있는 경우 공백 제거
            str_replace(주소1, " 번길", "번길") %>%
@@ -162,35 +204,107 @@ test <- waterusage %>% select(시군, 주소1, 주소2) %>%
            # '00반' 삭제
            str_remove(., "[0-9]{1,}(반)") %>%
            str_trim(),
-         읍면1 = str_extract(주소1수정, "[가-힣0-9]{1,}(읍|면)") %>% 
+         # 읍면
+         읍면1 = str_extract(주소1수정, "[가-힣0-9]{1,}(읍|면)(?![0-9](가)|동|가|리|로|길)") %>% 
            str_remove(., "[0-9]{1,}") %>% 
            str_trim(), 
-         # 읍면1 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
-         읍면1 = ifelse(str_detect(읍면_check, str_c(" ", 읍면1, " ")), 읍면1, ""),
-         읍면2 = str_extract(주소2수정, "[가-힣0-9]{1,}(읍|면)") %>% 
+         읍면2 = str_extract(주소2수정, "[가-힣0-9]{1,}(읍|면)(?![0-9](가)|동|가|리|로|길)") %>% 
            str_remove(., "[0-9]{1,}") %>% 
            str_trim(),
-         # 읍면2 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
-         읍면2 = ifelse(str_detect(읍면_check, str_c(" ", 읍면2, " ")), 읍면2, ""),
-         동리1 = ifelse(str_sub(str_extract(주소1수정, "[가-힣0-9]{1,}(동|가|리)") %>% str_trim(), -1, -1) == "가",
-                      str_extract(주소1수정, "[가-힣0-9]{1,}(가)") %>% str_trim(),
-                      str_extract(주소1수정, "[가-힣0-9]{1,}(동|리)") %>%
-                        str_remove_all(., "[0-9]{1,}") %>% str_trim()),
-         # 동리1 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
-         동리1 = ifelse(str_detect(동리_check, str_c(" ", 동리1, " ")), 동리1, ""),
-         동리2 = ifelse(str_sub(str_extract(주소2수정, "[가-힣0-9]{1,}(동|가|리)") %>% str_trim(), -1, -1) == "가",
-                      str_extract(주소2수정, "[가-힣0-9]{1,}(가)") %>% str_trim(),
-                      str_extract(주소2수정, "[가-힣0-9]{1,}(동|리)") %>%
-                        str_remove_all(., "[0-9]{1,}") %>% str_trim()), 
-         # 동리2 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
-         동리2 = ifelse(str_detect(동리_check, str_c(" ", 동리2, " ")), 동리2, ""),
-         도로명1 = str_extract(주소1수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가))"),
-         도로명2 = str_extract(주소2수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가))")
+         # 읍면 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
+         읍면1 = ifelse(str_detect(읍면_check, str_c(" ", 읍면1, " ")), 읍면1, NA),
+         읍면2 = ifelse(str_detect(읍면_check, str_c(" ", 읍면2, " ")), 읍면2, NA),
+         # 동리(주소에서 읍면 삭제 후 추출)
+         동리1 = ifelse(is.na(읍면1), 
+                      주소1수정,
+                      str_remove(주소1수정, 읍면1)), 
+         동리1 = ifelse(str_sub(str_extract(동리1, "[가-힣0-9]{1,}(동|가|리)") %>% 
+                                str_trim(), -1, -1) == "가",
+                      str_extract(동리1, "[가-힣0-9]{1,}(가)") %>% str_trim(),
+                      str_extract(동리1, "[가-힣0-9]{1,}(동|리)") %>% str_trim()),
+         동리2 = ifelse(is.na(읍면2), 
+                      주소2수정,
+                      str_remove(주소2수정, 읍면2)),
+         동리2 = ifelse(str_sub(str_extract(동리2, "[가-힣0-9]{1,}(동|가|리)") %>%
+                                str_trim(), -1, -1) == "가",
+                      str_extract(동리2, "[가-힣0-9]{1,}(가)") %>% str_trim(),
+                      str_extract(동리2, "[가-힣0-9]{1,}(동|리)") %>% str_trim()), 
+         # 동리 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
+         동리1 = ifelse(str_detect(동리_check, str_c(" ", 동리1, " ")), 동리1, NA),
+         동리2 = ifelse(str_detect(동리_check, str_c(" ", 동리2, " ")), 동리2, NA),
+         # 도로명
+         도로명1 = str_extract(주소1수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가)|읍|면|동|가|리)"),
+         도로명2 = str_extract(주소2수정, "[가-힣A-Za-z0-9]{1,}(로|길)(?![0-9](가)|읍|면|동|가|리)"),
+         # 도로명 확인(앞뒤로 여백 추가해서 일부만 일치하는 경우 방지)
+         도로명1 = ifelse(str_detect(도로명_check, str_c(" ", 도로명1, " ")), 도로명1, NA),
+         도로명2 = ifelse(str_detect(도로명_check, str_c(" ", 도로명2, " ")), 도로명2, NA),
+         # 본번/부번
+         산1 = str_extract(주소1수정, "(?<=동 |리 |가 )(산)"),
+         본번1 = str_extract(주소1수정, "(?<=동 |동|리 |리|가 |가|산 |산)[0-9]{1,}(?!로 |길 )"),
+         부번1 = str_extract(주소1수정, "(?<=동 |동|리 |리|가 |가|산 |산)[0-9\\-]{1,}") %>%
+           str_extract(., "(?<=\\-)[0-9]{1,}"),
+         산2 = str_extract(주소2수정, "(?<=동 |리 |가 )(산)"),
+         본번2 = str_extract(주소2수정, "(?<=동 |동|리 |리|가 |가|산 |산)[0-9]{1,}(?!로 |길 )"),
+         부번2 = str_extract(주소2수정, "(?<=동 |동|리 |리|가 |가|산 |산)[0-9\\-]{1,}") %>%
+           str_extract(., "(?<=\\-)[0-9]{1,}"),
+         건물본번1 = ifelse(is.na(도로명1), NA,
+           주소1수정 %>% 
+           str_split_i(., 도로명1, 2) %>%
+           str_extract(., "[0-9]{1,}")),
+         건물부번1 = ifelse(is.na(도로명1), NA,
+           주소1수정 %>% 
+           str_split_i(., 도로명1, 2) %>%
+           str_extract(., "[0-9\\-]{1,}") %>%
+           str_extract(., "(?<=\\-)[0-9]{1,}")),
+         건물본번2 = ifelse(is.na(도로명2), NA,
+           주소2수정 %>% 
+           str_split_i(., 도로명2, 2) %>%
+           str_extract(., "[0-9]{1,}")),
+         건물부번2 = ifelse(is.na(도로명2), NA,
+           주소2수정 %>% 
+           str_split_i(., 도로명2, 2) %>%
+           str_extract(., "[0-9\\-]{1,}") %>%
+           str_extract(., "(?<=\\-)[0-9]{1,}")),
+         읍면 = ifelse(is.na(읍면1) | 읍면1 == "", 읍면2, 읍면1),
+         동리 = ifelse(is.na(동리1) | 동리1 == "", 동리2, 동리1),
+         읍면동 = str_extract(동리, "[가-힣0-9]{1,}(동|가)(?!리)"),
+         리 = str_extract(동리, "[가-힣0-9]{1,}(리)"),
+         읍면동 = ifelse(is.na(읍면동), 읍면, 읍면동),
+         산 = ifelse(is.na(산1) | 산1 == "", 산2, 산1),
+         본번 = ifelse(is.na(본번1) | 본번1 == "", 본번2, 본번1),
+         부번 = ifelse(is.na(부번1) | 부번1 == "", 부번2, 부번1),
+         도로명 = ifelse(is.na(도로명1) | 도로명1 == "", 도로명2, 도로명1),
+         건물본번 = ifelse(is.na(건물본번1) | 건물본번1 == "", 건물본번2, 건물본번1),
+         건물부번 = ifelse(is.na(건물부번1) | 건물부번1 == "", 건물부번2, 건물부번1),
+         # 주소 합치기
+         도로명주소 =
+           str_c(
+             "강원도", " ", 시군, " ",
+             ifelse(is.na(읍면), "", str_c(읍면, " ")),
+             도로명, " ", 건물본번,
+             ifelse(건물부번 == 0 | is.na(건물부번), "", str_c("-", 건물부번))
+             ),
+         지번주소 =
+           str_c(
+             "강원도", " ", 시군, " ", 
+             ifelse(is.na(읍면), "", str_c(읍면, " ")),
+             ifelse(is.na(동리), "", str_c(동리, " ")),
+             ifelse(is.na(산), "", str_c(산, " ")),
+             본번,
+             ifelse(부번 == 0 | is.na(부번), "", str_c("-", 부번))
+             ),
+         동리확인 = ifelse(is.na(동리), "x", ""),
+         주소확인 = ifelse(is.na(동리) & is.na(도로명주소) & is.na(지번주소), "x", ""),
+         코드 = str_c(시군, 수용가번호)
   )
 
 
-
-
+### 주소코드 합치기
+test1 <- test %>% 
+  left_join(waterusage_2021_dong %>% select(코드, 주소코드), by = "코드") %>% 
+  mutate(주소코드2 = str_c(시군, 읍면동, 리, sep = " "), 
+    주소코드확인 = ifelse(is.na(주소코드), "x", ""), 
+    주소코드확인2 = ifelse(주소코드 != 주소코드2, "x", ""))
 
 
 

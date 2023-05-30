@@ -110,7 +110,39 @@ waterusage_푸른물1 <- waterusage_푸른물 %>%
 waterusage <- rbind(waterusage_기존1, waterusage_wims1, waterusage_푸른물1)
 
 
-##########  과거 자료(2021년) 확인  ##################################################
+##########  코드 정리  ##############################################################
+
+### 법정동코드 불러오기
+dongcode <- read_excel("주소 검토/법정동코드 전체자료.xlsx", guess_max = 3000) %>% 
+  filter(시도 == "강원도", 폐지여부 == "존재") %>% 
+  select(-폐지여부) %>% 
+  rename(시군 = 시군구) %>% 
+  mutate(
+    읍면 = str_extract(읍면동, "[가-힣0-9]{1,}(읍|면)"),
+    동리 = ifelse(is.na(읍면), 읍면동, 리)) %>% 
+  filter(!is.na(동리))
+
+### 도로명코드 불러오기
+dorocode <- read.table("주소 검토/주소DB/도로명코드.txt", 
+                       header = F, quote = "", sep = "|", fill = T,
+                       encoding = "UTF-8", fileEncoding = "EUC-KR") %>% 
+  select(1, 2, 5) %>%
+  set_names(c(
+    "도로명코드", "도로명", "시도"
+  )) %>% 
+  filter(시도 == "강원도") %>% 
+  select(-시도) %>% 
+  distinct(도로명, .keep_all = TRUE)
+
+### 읍면, 동리, 도로명 확인용 벡터 생성(제일 앞에 여백 추가)
+읍면_check <- paste(" ", dongcode$읍면, collapse = " ")
+동리_check <- paste(" ", dongcode$동리, collapse = " ")
+도로명_check <- paste(" ", dorocode$도로명, collapse = " ")
+
+
+
+
+##########  과거 자료(2021년) 확인  #################################################
 
 ## *****  파일 불러오기  *******************************************************
 # 데이터 경로지정 및 데이터 목록
@@ -151,34 +183,7 @@ waterusage_2021_dong <- waterusage_2021 %>%
   
 
 
-##########  주소 정리  ###############################################################
-
-### 법정동코드 불러오기
-dongcode <- read_excel("주소 검토/법정동코드 전체자료.xlsx", guess_max = 3000) %>% 
-  filter(시도 == "강원도", 폐지여부 == "존재") %>% 
-  select(-폐지여부) %>% 
-  rename(시군 = 시군구) %>% 
-  mutate(
-    읍면 = str_extract(읍면동, "[가-힣0-9]{1,}(읍|면)"),
-    동리 = ifelse(is.na(읍면), 읍면동, 리)) %>% 
-  filter(!is.na(동리))
-
-### 도로명코드 불러오기
-dorocode <- read.table("주소 검토/주소DB/도로명코드.txt", 
-                       header = F, quote = "", sep = "|", fill = T,
-                       encoding = "UTF-8", fileEncoding = "EUC-KR") %>% 
-  select(1, 2, 5) %>%
-  set_names(c(
-    "도로명코드", "도로명", "시도"
-  )) %>% 
-  filter(시도 == "강원도") %>% 
-  select(-시도) %>% 
-  distinct(도로명, .keep_all = TRUE)
-
-### 읍면, 동리, 도로명 확인용 벡터 생성(제일 앞에 여백 추가)
-읍면_check <- paste(" ", dongcode$읍면, collapse = " ")
-동리_check <- paste(" ", dongcode$동리, collapse = " ")
-도로명_check <- paste(" ", dorocode$도로명, collapse = " ")
+##########  주소 정리  ##############################################################
 
 
 ### 주소검토
@@ -302,8 +307,8 @@ test <- waterusage %>% select(시군, 수용가번호, 주소1, 주소2) %>%
 ### 주소코드 합치기
 test1 <- test %>% 
   left_join(waterusage_2021_dong %>% select(코드, 주소코드), by = "코드") %>% 
-  mutate(주소코드2 = str_c(시군, 읍면동, 리, sep = " "), 
-    주소코드확인 = ifelse(is.na(주소코드), "x", ""), 
+  mutate(주소코드2 = str_c(시군, 읍면동, 동리, sep = " "), 
+    주소코드확인 = ifelse(is.na(주소코드) & is.na(주소코드2), "x", ""), 
     주소코드확인2 = ifelse(주소코드 != 주소코드2, "x", ""))
 
 
